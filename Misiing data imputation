@@ -1,0 +1,60 @@
+library(mvtnorm)
+library(MCMCpack)
+
+##Gibbs
+Y <- predictor
+### prior parameters
+n<-dim(Y)[1] ; p<-dim(Y)[2]
+mu0<-colSums(predictor, na.rm = T) / nrow(crimedata) ####based on sample mean
+sd0<-mu0/2 ####above 0
+L0<-outer(sd0, sd0)*0.5 ;diag(L0) <- diag(outer(sd0,sd0))
+nu0<-p+2 ; S0<-L0 ####need to check the logic 
+
+### starting values 
+Sigma<-S0
+Y.full <-Y 
+O<-1*(! is.na(Y)) 
+for ( j in 1:p) { 
+  Y.full[ is.na(Y.full[ , j ]) , j]<-mean(Y.full[ , j ] , na.rm=TRUE) 
+  }
+### Gibbs sampler 
+THETA<-SIGMA<-Y.MISS<-NULL 
+set.seed (2359)
+for ( s in 1:1000) {
+###update theta 
+  ybar<-apply(Y.full ,2 ,mean) 
+  Ln<-solve( solve(L0) + n*solve(Sigma) ) 
+  mun<-Ln%*%( solve(L0)%*%mu0 + n*solve (Sigma)%*%ybar )
+  theta<-rmvnorm(1 ,mun,Ln)
+###update Sigma
+  Sn<- S0 + ( t(Y.full )-c( theta ) )%*%t ( t(Y.full )-c( theta ) ) 
+  Sigma<-solve( rwish( nu0+n, solve(Sn))) #### a little bit correction
+###update missing data
+  for ( i in c(1:nrow(Y))[rowSums(is.na(Y)) != 0]) { ####filter the row contating NA's
+    b <- ( O[ i ,]==0 ) 
+    a <- ( O[ i ,]==1 ) 
+    iSa<- solve (Sigma[a , a ]) 
+    beta.j <- Sigma[b, a]%*%iSa 
+    Sigma.j <- Sigma[b,b] - Sigma[b, a]%*%iSa%*%Sigma[ a ,b] 
+    Sigma.j <- round(Sigma.j, digits=0) ####convert to symmetric matrix
+    theta.j<- theta[b] + beta.j%*%(t (Y.full[ i , a])-theta[ a ])
+    Y.full[ i ,b] <- rmvnorm(1 , theta.j , Sigma.j ) 
+  }
+### save results
+  THETA<-rbind (THETA, theta ) ; SIGMA<-rbind (SIGMA, c(Sigma ))
+  Y.MISS<-rbind (Y.MISS, Y.full [O==0] )
+}
+```
+
+```{r}
+##imputation
+miss.vec<-as.vector(Y.MISS) ;miss.vec[miss.vec <0] <- 0
+Y.MISS <- matrix(miss.vec, nrow=1000)
+imputation<-apply(Y.MISS, MARGIN = 2, mean)
+Y[which(is.na(Y), arr.ind=T)] <- imputation
+```
+
+```{r}
+##export data
+setwd("C:/R")
+write.csv(Y, "without_NA.csv")
